@@ -3,20 +3,33 @@
 # 用法: 在项目根目录执行  ./deploy.sh
 set -euo pipefail
 
-echo "==> [1/5] 更新系统软件源索引"
+echo "==> [1/6] 更新系统软件源索引"
 sudo apt-get update
 
-echo "==> [2/5] 安装系统依赖 (pigpio, lgpio, git)"
-sudo apt-get install -y pigpio python3-pigpio python3-lgpio git
+echo "==> [2/6] 安装系统依赖 (lgpio, git, 构建工具)"
+sudo apt-get install -y python3-lgpio git swig python3-dev build-essential
 
-echo "==> [3/5] 启动 pigpiod 守护进程（发射端 DMA 波形必需）"
+echo "==> [3/6] 安装 pigpio（优先 apt，Bookworm 已移除则源码编译）"
+if sudo apt-get install -y pigpio python3-pigpio; then
+    echo "    ✓ pigpio 通过 apt 安装"
+else
+    echo "    apt 无 pigpio 包，从源码编译安装（官方推荐方式）..."
+    if [ ! -d /tmp/pigpio-src ]; then
+        git clone --depth 1 https://github.com/joan2937/pigpio.git /tmp/pigpio-src
+    fi
+    (cd /tmp/pigpio-src && make -j4 && sudo make install)
+    sudo ldconfig
+    echo "    ✓ pigpio 源码编译安装完成"
+fi
+
+echo "==> [4/6] 启动 pigpiod 守护进程（发射端 DMA 波形必需）"
 sudo systemctl enable pigpiod
 sudo systemctl start pigpiod
 
-echo "==> [4/5] 安装 Python 依赖"
+echo "==> [5/6] 安装 Python 依赖"
 pip3 install --user --break-system-packages -r requirements.txt
 
-echo "==> [5/5] 验证安装"
+echo "==> [6/6] 验证安装"
 python3 - <<'PY'
 try:
     import pigpio

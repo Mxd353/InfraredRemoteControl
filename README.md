@@ -41,9 +41,13 @@ cd InfraredRemoteControl
 
 ```bash
 # 发射端: pigpio（DMA 硬件波形，微秒级时序精度）+ 守护进程
-sudo apt install pigpio python3-pigpio
-sudo systemctl enable pigpiod
-sudo systemctl start pigpiod
+# 注意: Raspberry Pi OS Bookworm 起 apt 已移除 pigpio 包，
+#       需从源码编译（deploy.sh 会自动处理）
+sudo apt install git swig python3-dev build-essential
+git clone --depth 1 https://github.com/joan2937/pigpio.git
+cd pigpio && make -j4 && sudo make install && cd ..
+sudo ldconfig
+sudo systemctl enable --now pigpiod
 
 # 接收端: lgpio（直接操作 /dev/gpiochip，无需守护进程）
 sudo apt install python3-lgpio
