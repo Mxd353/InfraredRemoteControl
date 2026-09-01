@@ -6,3 +6,6 @@ dist/
 build/
 .eggs/
 *.tmp
+
+# 运行时数据：码库文件由 learn 命令生成，不纳入版本管理
+codes/*.json
