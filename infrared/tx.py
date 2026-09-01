@@ -65,6 +65,10 @@ class IRTransmitter:
 
         pigpio 的 pulse(gpio_on, gpio_off, delay) 使用 GPIO 位掩码，
         mark 段填充 38kHz 方波，space 段保持低电平。
+
+        注意：pigpio 单次 wave_add_generic 命令受 socket 缓冲限制
+        （约 8192 字节 ≈ 682 个脉冲），超限会 Connection reset。
+        38kHz 载波一帧可产生十几万脉冲，必须分批添加。
         """
         half_period = max(1, round(1_000_000 / (2 * self.carrier_hz)))
         on = 1 << self.gpio_pin
@@ -86,7 +90,11 @@ class IRTransmitter:
                 # space: 载波关闭，保持低电平
                 pulses.append(pigpio.pulse(0, off, us))
 
-        self.pi.wave_add_generic(pulses)
+        # 分批添加（pigpio 支持多次调用累积到同一个 wave）
+        BATCH = 500
+        self.pi.wave_add_new()
+        for i in range(0, len(pulses), BATCH):
+            self.pi.wave_add_generic(pulses[i : i + BATCH])
         wave_id = self.pi.wave_create()
         if wave_id < 0:
             raise RuntimeError(f"wave_create 失败: {wave_id}")

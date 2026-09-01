@@ -63,7 +63,11 @@ def main() -> None:
             pulses.append(pigpio.pulse(0, off, HALF_PERIOD))
         print(f"    脉冲总数: {len(pulses)}")
 
-        pi.wave_add_generic(pulses)
+        # 分批添加（pigpio 单次命令缓冲约 8192 字节 ≈ 682 个脉冲）
+        BATCH = 500
+        pi.wave_add_new()
+        for i in range(0, len(pulses), BATCH):
+            pi.wave_add_generic(pulses[i : i + BATCH])
         wid = pi.wave_create()
         if wid < 0:
             print(f"    ❌ wave_create 失败: {wid}")
