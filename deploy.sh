@@ -7,7 +7,9 @@ echo "==> [1/6] 更新系统软件源索引"
 sudo apt-get update
 
 echo "==> [2/6] 安装系统依赖 (lgpio, git, 构建工具)"
-sudo apt-get install -y python3-lgpio git swig python3-dev build-essential
+# python3-setuptools: Python 3.12 移除了 distutils 标准库，
+# pigpio 旧版 setup.py 依赖它，需 setuptools 提供兼容层
+sudo apt-get install -y python3-lgpio git swig python3-dev build-essential python3-setuptools
 
 echo "==> [3/6] 安装 pigpio（优先 apt，Bookworm 已移除则源码编译）"
 if sudo apt-get install -y pigpio python3-pigpio; then
@@ -17,10 +19,21 @@ else
     if [ ! -d /tmp/pigpio-src ]; then
         git clone --depth 1 https://github.com/joan2937/pigpio.git /tmp/pigpio-src
     fi
-    (cd /tmp/pigpio-src && make -j4 && sudo make install)
+    (cd /tmp/pigpio-src && make -j4)
+    # make install 中的 Python 模块步骤在 Python 3.12 上可能因
+    # distutils 报错，C 守护进程此时通常已装好，继续执行
+    (cd /tmp/pigpio-src && sudo make install) \
+        || echo "    ⚠️ make install 部分失败（Python 模块步骤），继续检查守护进程"
     sudo ldconfig
     echo "    ✓ pigpio 源码编译安装完成"
 fi
+
+# 确认 pigpiod 守护进程存在
+if ! command -v pigpiod >/dev/null 2>&1; then
+    echo "    ❌ pigpiod 未安装，部署中止"
+    exit 1
+fi
+echo "    ✓ pigpiod 已就绪: $(command -v pigpiod)"
 
 echo "==> [4/6] 启动 pigpiod 守护进程（发射端 DMA 波形必需）"
 sudo systemctl enable pigpiod
