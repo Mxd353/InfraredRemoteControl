@@ -7,8 +7,8 @@
 此模块用于"学习"：用原装空调遥控器对着接收头发射，记录下时序，
 存进码库后即可由 IRTransmitter 重放。
 
-与发送端一样，本模块直接操作 /dev/gpiochip*，无需守护进程，
-且会自动探测 GPIO 所属的 gpiochip（树莓派 5 为 gpiochip4）。
+接收端使用 lgpio 直接操作 /dev/gpiochip*（无需守护进程），
+并会自动探测 GPIO 所属的 gpiochip（树莓派 5 为 gpiochip4）。
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ import time
 from typing import List, Optional, Tuple
 
 from .raw import PulseSequence
-from .tx import _find_gpiochip
+from .gpio import _find_gpiochip
 
 try:
     import lgpio

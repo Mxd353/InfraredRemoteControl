@@ -7,6 +7,7 @@ setup(
     packages=find_packages(),
     python_requires=">=3.9",
     install_requires=[
+        "pigpio",
         "lgpio",
     ],
     entry_points={

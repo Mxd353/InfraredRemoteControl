@@ -35,21 +35,27 @@ cd InfraredRemoteControl
 ./deploy.sh
 ```
 
-`deploy.sh` 会自动完成：更新软件源、安装 `python3-lgpio`、安装 Python 依赖、验证导入。
+`deploy.sh` 会自动完成：更新软件源、安装 `pigpio`/`python3-lgpio`、启动 `pigpiod` 守护进程、安装 Python 依赖、验证导入。
 
 ### 方法二：手动安装
 
 ```bash
-# lgpio（直接操作 /dev/gpiochip，无需守护进程）
+# 发射端: pigpio（DMA 硬件波形，微秒级时序精度）+ 守护进程
+sudo apt install pigpio python3-pigpio
+sudo systemctl enable pigpiod
+sudo systemctl start pigpiod
+
+# 接收端: lgpio（直接操作 /dev/gpiochip，无需守护进程）
 sudo apt install python3-lgpio
 
 # Python 依赖（树莓派上执行）
 pip install -r requirements.txt
 ```
 
-> 说明：本项目仅依赖 lgpio（RPi.GPIO 已废弃，不再使用）。
-> lgpio 由 pigpio 作者开发，直接操作 gpiochip 设备，无需守护进程。
-> 树莓派 5 的 GPIO 位于 /dev/gpiochip4，本项目会自动探测，无需手动指定。
+> 说明：本项目发射端使用 **pigpio**（DMA 硬件波形，实测 lgpio 软件定时波形
+> 抖动过大，38kHz 载波断续导致接收端无法解调）；接收端使用 **lgpio**
+> （callback 纳秒时间戳，精度足够）。树莓派 5 的 GPIO 位于 /dev/gpiochip4，
+> lgpio 会自动探测。
 
 ## 项目结构
 
@@ -159,6 +165,6 @@ python -m infrared haier --on --protocol 14B
 
 ## 关键设计
 
-- **发射时序精度**：使用 lgpio 波形功能在树莓派上精确生成脉冲时序（软件定时波形），无需守护进程。
+- **发射时序精度**：pigpio wave 由 DMA 硬件播放，微秒级精度；接收端用 lgpio callback 纳秒时间戳。
 - **协议扩展**：在 `raw.py` 之上可实现任意脉冲协议（如 Sony、RC5、Samsung）。
 - **码库格式**：纯 JSON，方便手工编辑或与其他工具交换。

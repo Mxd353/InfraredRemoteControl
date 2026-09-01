@@ -94,9 +94,8 @@ def main() -> None:
         print("   2. 发射强度不足：模块供电或用三极管放大驱动")
         print("   3. 需重复发射：加 --repeat 2~3")
     else:
-        print("\n❌ 波形失真（软件定时精度不足）—— lgpio 的 tx_wave 是")
-        print("   软件定时，微秒级 tick 在 Linux 上抖动大，38kHz 载波")
-        print("   时序被破坏。需要更换发射方案（pigpio DMA 或内核驱动）。")
+        print("\n❌ 波形失真（软件定时精度不足）—— 当前发射方案无法保证")
+        print("   微秒级时序。应使用 pigpio DMA 硬件波形（本项目默认）。")
 
 
 if __name__ == "__main__":
