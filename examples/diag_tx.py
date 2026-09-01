@@ -63,11 +63,17 @@ def main() -> None:
             pulses.append(pigpio.pulse(0, off, HALF_PERIOD))
         print(f"    脉冲总数: {len(pulses)}")
 
-        # 分批添加（pigpio 单次命令缓冲约 8192 字节 ≈ 682 个脉冲）
+        # 分批添加。pigpio 多次 wave_add_generic 按时间交织合并（非拼接），
+        # 后续批次首脉冲必须是纯 delay 指向拼接点，否则波形时间重叠压缩
         BATCH = 500
         pi.wave_add_new()
+        offset = 0
         for i in range(0, len(pulses), BATCH):
-            pi.wave_add_generic(pulses[i : i + BATCH])
+            batch = pulses[i : i + BATCH]
+            if i > 0:
+                batch = [pigpio.pulse(0, 0, offset)] + batch
+            pi.wave_add_generic(batch)
+            offset += sum(p.delay for p in pulses[i : i + BATCH])
         wid = pi.wave_create()
         if wid < 0:
             print(f"    ❌ wave_create 失败: {wid}")

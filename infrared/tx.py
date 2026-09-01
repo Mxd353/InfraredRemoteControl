@@ -92,16 +92,24 @@ class IRTransmitter:
                 # space: 载波关闭，保持低电平
                 pulses.append(pigpio.pulse(0, off, us))
 
-        # 分批添加（pigpio 支持多次调用累积到同一个 wave）
+        # 分批添加。注意: pigpio 多次 wave_add_generic 调用是"时间交织
+        # 合并"（供多 GPIO 并行使用），并非顺序拼接 —— 官方文档要求
+        # 顺序拼接时，后续批次的第一个脉冲必须是"纯 delay"指向起始时刻。
+        # 否则第二批从 t=0 开始与第一批时间重叠，波形被严重压缩。
         BATCH = 500
         self.pi.wave_add_new()
+        offset = 0
         added = 0
         for i in range(0, len(pulses), BATCH):
-            n = self.pi.wave_add_generic(pulses[i : i + BATCH])
+            batch = pulses[i : i + BATCH]
+            if i > 0:
+                batch = [pigpio.pulse(0, 0, offset)] + batch
+            n = self.pi.wave_add_generic(batch)
             if n < 0:
                 raise RuntimeError(f"wave_add_generic 失败: {n} "
                                    f"（已添加 {added}/{len(pulses)} 个脉冲）")
             added += n
+            offset += sum(p.delay for p in pulses[i : i + BATCH])
         wave_id = self.pi.wave_create()
         if wave_id < 0:
             raise RuntimeError(f"wave_create 失败: {wave_id}"
