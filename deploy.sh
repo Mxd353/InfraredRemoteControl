@@ -38,14 +38,18 @@ echo "    ✓ pigpiod 已就绪: $(command -v pigpiod)"
 # 源码编译安装不会自动创建 systemd 服务文件，需手动提供
 if [ ! -f /etc/systemd/system/pigpiod.service ]; then
     echo "==> [3.5/6] 创建 pigpiod systemd 服务"
+    # 注意: 必须加 -f 前台运行 —— pigpiod 默认 daemonize(fork 后台)，
+    # systemd Type=simple 会认为主进程退出并杀掉整个进程组，
+    # 导致服务启动 41ms 后 failed (start-limit-hit)
     sudo tee /etc/systemd/system/pigpiod.service >/dev/null <<'EOF'
 [Unit]
 Description=Daemon allows to control the GPIO pins of the Raspberry Pi
 After=network.target
 
 [Service]
-ExecStart=/usr/local/bin/pigpiod -l -s 1
+ExecStart=/usr/local/bin/pigpiod -l -s 1 -f
 Restart=always
+RestartSec=5
 
 [Install]
 WantedBy=multi-user.target
