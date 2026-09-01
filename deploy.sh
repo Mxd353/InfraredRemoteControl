@@ -63,14 +63,32 @@ pip3 install --user --break-system-packages -r requirements.txt
 
 echo "==> [6/6] 验证安装"
 python3 - <<'PY'
+import subprocess
+import sys
+
 try:
     import pigpio
     pi = pigpio.pi()
-    print("pigpio:", getattr(pigpio, "VERSION", "?"),
-          "| pigpiod 连接:", "OK" if pi.connected else "失败")
-    if not pi.connected:
+    if pi.connected:
+        print("pigpio:", getattr(pigpio, "VERSION", "?"), "| pigpiod 连接: OK")
+        pi.stop()
+    else:
+        print("pigpio:", getattr(pigpio, "VERSION", "?"), "| pigpiod 连接: 失败")
+        print("\n---- 诊断信息 ----")
+        for cmd in (
+            "systemctl is-active pigpiod",
+            "pgrep -a pigpiod",
+            "ss -tlnp | grep 8888",
+            "journalctl -u pigpiod --no-pager -n 10",
+        ):
+            try:
+                out = subprocess.run(
+                    cmd, shell=True, capture_output=True, text=True, timeout=10
+                ).stdout.strip()
+                print(f"$ {cmd}\n  {out if out else '(无输出)'}")
+            except Exception as e:
+                print(f"$ {cmd}\n  (执行失败: {e})")
         raise SystemExit(1)
-    pi.stop()
 except ImportError as e:
     print("pigpio 导入失败:", e)
     raise SystemExit(1)
