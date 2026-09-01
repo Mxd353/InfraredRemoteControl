@@ -35,6 +35,30 @@ if ! command -v pigpiod >/dev/null 2>&1; then
 fi
 echo "    ✓ pigpiod 已就绪: $(command -v pigpiod)"
 
+# 源码编译安装不会自动创建 systemd 服务文件，需手动提供
+if [ ! -f /etc/systemd/system/pigpiod.service ]; then
+    echo "==> [3.5/6] 创建 pigpiod systemd 服务"
+    if [ -f /tmp/pigpio-src/pigpiod.service ]; then
+        sudo cp /tmp/pigpio-src/pigpiod.service /etc/systemd/system/
+        echo "    ✓ 使用源码自带的服务文件"
+    else
+        sudo tee /etc/systemd/system/pigpiod.service >/dev/null <<'EOF'
+[Unit]
+Description=Daemon allows to control the GPIO pins of the Raspberry Pi
+After=network.target
+
+[Service]
+ExecStart=/usr/local/bin/pigpiod -l -s 1
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+EOF
+        echo "    ✓ 手动创建服务文件"
+    fi
+    sudo systemctl daemon-reload
+fi
+
 echo "==> [4/6] 启动 pigpiod 守护进程（发射端 DMA 波形必需）"
 sudo systemctl enable pigpiod
 sudo systemctl start pigpiod
