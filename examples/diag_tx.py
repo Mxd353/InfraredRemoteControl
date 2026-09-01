@@ -60,14 +60,17 @@ def main() -> None:
 
         # ── 步骤 2: tx_wave 发送 ──
         print(f"\n[2] tx_wave 发送 38kHz 载波（亮1s + 灭0.5s + 亮1s）")
+        # 注意: lgpio wave 的 mask 是"组内偏移位"（单 GPIO 组 = bit 0），
+        # 不能用 1 << GPIO —— 否则 xGroupWrite 匹配不到任何位，GPIO 恒低
         pulses = []
+        mask = 1
         for _ in range(1_000_000 // (2 * HALF_PERIOD)):
-            pulses.append(lgpio.pulse(1 << GPIO, 1 << GPIO, HALF_PERIOD))
-            pulses.append(lgpio.pulse(0, 1 << GPIO, HALF_PERIOD))
-        pulses.append(lgpio.pulse(0, 1 << GPIO, 500_000))
+            pulses.append(lgpio.pulse(mask, mask, HALF_PERIOD))
+            pulses.append(lgpio.pulse(0, mask, HALF_PERIOD))
+        pulses.append(lgpio.pulse(0, mask, 500_000))
         for _ in range(1_000_000 // (2 * HALF_PERIOD)):
-            pulses.append(lgpio.pulse(1 << GPIO, 1 << GPIO, HALF_PERIOD))
-            pulses.append(lgpio.pulse(0, 1 << GPIO, HALF_PERIOD))
+            pulses.append(lgpio.pulse(mask, mask, HALF_PERIOD))
+            pulses.append(lgpio.pulse(0, mask, HALF_PERIOD))
         print(f"    脉冲总数: {len(pulses)}")
 
         room = lgpio.tx_room(h, GPIO, lgpio.TX_WAVE)

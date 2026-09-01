@@ -89,9 +89,15 @@ class IRTransmitter:
         lgpio.gpio_claim_output(self.h, gpio_pin, 0)
 
     def _build_pulses(self, seq: PulseSequence) -> List:
-        """将时序转换为 lgpio.pulse 列表（mark 段填充 38kHz 载波）。"""
+        """将时序转换为 lgpio.pulse 列表（mark 段填充 38kHz 载波）。
+
+        lgpio 的 wave 使用"组内偏移位"作为 mask（bit 0 = 组内第一个 GPIO）。
+        单 GPIO 声明为一个单成员组，因此 mask 固定为 1（偏移 0），
+        而不是 1 << gpio_pin —— 否则 xGroupWrite 无法匹配任何位，
+        GPIO 将一直保持低电平（这就是之前"步骤1亮、步骤2不亮"的原因）。
+        """
         half_period = max(1, round(1_000_000 / (2 * self.carrier_hz)))
-        mask = 1 << self.gpio_pin
+        mask = 1  # 组内偏移位：bit 0 = 单成员组的唯一 GPIO
         pulses: List = []
         for i, us in enumerate(seq.us):
             if us <= 0:
