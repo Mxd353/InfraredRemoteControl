@@ -89,7 +89,7 @@ def cmd_learn(args) -> int:
     rx = IRReceiver(args.rx_pin)
     captured = None
     for i in range(args.retries):
-        print(f"[{i+1}/{args.retries}] 请对着接收头按住遥控器按键（{args.name}）...")
+        print(f"[{i+1}/{args.retries}] 请对着接收头【按一下】遥控器按键（{args.name}）...")
         captured = rx.capture()
         if captured is None:
             print("  未捕获到信号，重试。")

@@ -62,8 +62,13 @@ class IRReceiver:
         self._cb = None
 
     def _on_edge(self, chip: int, gpio: int, level: int, timestamp: int) -> None:
-        """边沿回调：记录电平与纳秒时间戳。"""
-        self._edges.append((level, timestamp))
+        """边沿回调：记录电平与单调时钟纳秒时间戳。
+
+        注意：不用 lgpio 提供的 timestamp（其时钟源因内核而异，
+        可能是 since-boot 或 epoch），统一改用 time.monotonic_ns()，
+        与超时判断保持一致。
+        """
+        self._edges.append((level, time.monotonic_ns()))
 
     def capture(self, max_edges: int = 2000) -> Optional[PulseSequence]:
         """捕捉一次发射的完整脉冲序列。
@@ -89,7 +94,7 @@ class IRReceiver:
                 time.sleep(0.005)
                 continue
             last_ns = self._edges[-1][1]
-            if time.time_ns() - last_ns > self.timeout_s * 1_000_000_000:
+            if time.monotonic_ns() - last_ns > self.timeout_s * 1_000_000_000:
                 break
             if len(self._edges) >= max_edges:
                 break
