@@ -35,32 +35,45 @@ if ! command -v pigpiod >/dev/null 2>&1; then
 fi
 echo "    ✓ pigpiod 已就绪: $(command -v pigpiod)"
 
-# 源码编译安装不会自动创建 systemd 服务文件，需手动提供
+echo "==> [4/6] 启动 pigpiod 守护进程（发射端 DMA 波形必需）"
+
+# 策略1: systemd 方式（Type=forking，pigpiod 自身 daemonize）
+# 注意: 不能用 Type=simple + 前台(-f) —— pigpiod 在 systemd 环境
+# 会收到 SIGCONT(18) 后自杀，实测 41ms 即 failed
 if [ ! -f /etc/systemd/system/pigpiod.service ]; then
-    echo "==> [3.5/6] 创建 pigpiod systemd 服务"
-    # 注意: 必须加 -f 前台运行 —— pigpiod 默认 daemonize(fork 后台)，
-    # systemd Type=simple 会认为主进程退出并杀掉整个进程组，
-    # 导致服务启动 41ms 后 failed (start-limit-hit)
+    echo "    创建 pigpiod systemd 服务 (Type=forking)"
     sudo tee /etc/systemd/system/pigpiod.service >/dev/null <<'EOF'
 [Unit]
 Description=Daemon allows to control the GPIO pins of the Raspberry Pi
 After=network.target
 
 [Service]
-ExecStart=/usr/local/bin/pigpiod -l -s 1 -f
+Type=forking
+ExecStart=/usr/local/bin/pigpiod -l -s 1
 Restart=always
 RestartSec=5
 
 [Install]
 WantedBy=multi-user.target
 EOF
-    echo "    ✓ 已创建服务文件"
     sudo systemctl daemon-reload
 fi
 
-echo "==> [4/6] 启动 pigpiod 守护进程（发射端 DMA 波形必需）"
-sudo systemctl enable pigpiod
-sudo systemctl start pigpiod
+if sudo systemctl enable pigpiod && sudo systemctl start pigpiod \
+        && sleep 1 && pgrep -x pigpiod >/dev/null; then
+    echo "    ✓ pigpiod 已通过 systemd 启动"
+else
+    echo "    ⚠️ systemd 方式启动失败，回退为直接后台运行"
+    echo "      （pigpiod 与 systemd 存在已知的 SIGCONT 兼容问题）"
+    sudo pkill -x pigpiod 2>/dev/null || true
+    sudo pigpiod
+    sleep 1
+    if ! pgrep -x pigpiod >/dev/null; then
+        echo "    ❌ pigpiod 启动失败，部署中止"
+        exit 1
+    fi
+    echo "    ✓ pigpiod 已直接后台运行"
+fi
 
 echo "==> [5/6] 安装 Python 依赖"
 pip3 install --user --break-system-packages -r requirements.txt
