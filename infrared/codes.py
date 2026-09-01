@@ -59,7 +59,11 @@ class CodeLibrary:
         raw = self.data.get("codes", {}).get(name)
         if raw is None:
             return None
-        return PulseSequence(raw)
+        try:
+            return PulseSequence(raw)
+        except ValueError:
+            # 数据无效（如长度为偶数的占位示例），返回 None
+            return None
 
     def list_codes(self) -> list:
         return list(self.data.get("codes", {}).keys())

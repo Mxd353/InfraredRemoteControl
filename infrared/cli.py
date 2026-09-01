@@ -56,6 +56,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_info = sub.add_parser("info", help="显示码库元数据")
 
+    p_remove = sub.add_parser("remove", help="删除码库中的一个命令")
+    p_remove.add_argument("name", help="要删除的命令名")
+
     # 海尔空调专用命令
     p_haier = sub.add_parser("haier", help="海尔空调控制")
     p_haier.add_argument("--on", action="store_true", help="开机")
@@ -128,7 +131,10 @@ def cmd_list(args) -> int:
     print("命令:")
     for name in lib.list_codes():
         seq = lib.get_code(name)
-        print(f"  - {name:20s} ({len(seq)} 段, {seq.duration_us/1000:.0f}ms)")
+        if seq is None:
+            print(f"  - {name:20s} (数据无效，请重新学习或用 remove 删除)")
+        else:
+            print(f"  - {name:20s} ({len(seq)} 段, {seq.duration_us/1000:.0f}ms)")
     return 0
 
 
@@ -162,6 +168,21 @@ def cmd_info(args) -> int:
     lib = CodeLibrary(args.codes).load()
     print(json.dumps(lib.data, ensure_ascii=False, indent=2))
     return 0
+
+
+def cmd_remove(args) -> int:
+    lib = CodeLibrary(args.codes)
+    try:
+        lib.load()
+    except FileNotFoundError:
+        print(f"码库不存在: {args.codes}")
+        return 1
+    if lib.remove_code(args.name):
+        lib.save()
+        print(f"已删除命令 '{args.name}'")
+        return 0
+    print(f"命令 '{args.name}' 不存在。可用: {lib.list_codes()}")
+    return 1
 
 
 def cmd_haier(args) -> int:
@@ -229,6 +250,7 @@ def main(argv=None) -> int:
         "test-tx": cmd_test_tx,
         "test-rx": cmd_test_rx,
         "info": cmd_info,
+        "remove": cmd_remove,
         "haier": cmd_haier,
     }
     try:
