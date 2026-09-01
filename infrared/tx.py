@@ -95,11 +95,20 @@ class IRTransmitter:
         # 分批添加（pigpio 支持多次调用累积到同一个 wave）
         BATCH = 500
         self.pi.wave_add_new()
+        added = 0
         for i in range(0, len(pulses), BATCH):
-            self.pi.wave_add_generic(pulses[i : i + BATCH])
+            n = self.pi.wave_add_generic(pulses[i : i + BATCH])
+            if n < 0:
+                raise RuntimeError(f"wave_add_generic 失败: {n} "
+                                   f"（已添加 {added}/{len(pulses)} 个脉冲）")
+            added += n
         wave_id = self.pi.wave_create()
         if wave_id < 0:
-            raise RuntimeError(f"wave_create 失败: {wave_id}")
+            raise RuntimeError(f"wave_create 失败: {wave_id}"
+                               f"（共提交 {added}/{len(pulses)} 个脉冲）")
+        # 记录诊断信息：提交的脉冲数与 wave 实际脉冲数
+        self._last_pulses_submitted = len(pulses)
+        self._last_pulses_added = added
         return wave_id
 
     def send(self, seq: PulseSequence, repeat: int = 1, gap_us: int = 100_000) -> None:
@@ -112,12 +121,16 @@ class IRTransmitter:
         """
         import time
 
+        self._last_pulses_submitted = 0
+        self._last_pulses_added = 0
+        self._last_cb_count = 0
         wave_id = self._build_wave(seq)
         try:
             for i in range(repeat):
                 ret = self.pi.wave_send_once(wave_id)
                 if ret < 0:
                     raise RuntimeError(f"wave_send_once 失败: {ret}")
+                self._last_cb_count = ret  # 返回 DMA 控制块数量
                 # 等待播放完成（带超时保护，防止死循环）
                 deadline = time.monotonic() + max(10.0, seq.duration_us / 1e6 * 2)
                 while self.pi.wave_tx_busy():

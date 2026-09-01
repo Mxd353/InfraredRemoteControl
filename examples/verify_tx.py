@@ -56,7 +56,10 @@ def main() -> None:
     tx.send(original, repeat=args.repeat)
     t_send = time.monotonic() - t_send
     print(f"发射完成，耗时 {t_send * 1000:.0f}ms"
-          f"（波形理论时长 {original.duration_us / 1000 * args.repeat:.0f}ms）\n")
+          f"（波形理论时长 {original.duration_us / 1000 * args.repeat:.0f}ms）")
+    print(f"  提交脉冲 {getattr(tx, '_last_pulses_submitted', '?')}"
+          f" / 实际添加 {getattr(tx, '_last_pulses_added', '?')}"
+          f" / DMA CB {getattr(tx, '_last_cb_count', '?')}\n")
     t.join(timeout=5)
     captured = result.get("seq")
 
