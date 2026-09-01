@@ -135,11 +135,11 @@ def cmd_list(args) -> int:
 def cmd_test_tx(args) -> int:
     from .raw import PulseSequence
 
-    # 短促测试时序：500ms 载波
-    seq = PulseSequence([500_000])
+    # 测试时序：亮-灭-亮，共 2.5 秒，便于观察
+    seq = PulseSequence([500_000, 500_000, 500_000, 500_000, 500_000])
     with IRTransmitter(args.tx_pin) as tx:
         tx.send(seq)
-    print("发射器自检完成：应能看到模块闪烁。")
+    print("发射器自检完成：LED 应闪烁 3 次（每 0.5 秒一次）。")
     return 0
 
 
@@ -233,7 +233,7 @@ def main(argv=None) -> int:
     }
     try:
         return handlers[args.command](args)
-    except RuntimeError as e:
+    except Exception as e:
         print(f"错误: {e}", file=sys.stderr)
         return 1
 
