@@ -52,7 +52,11 @@ def main() -> None:
     t.start()
     time.sleep(0.3)  # 等待接收监听就绪
 
+    t_send = time.monotonic()
     tx.send(original, repeat=args.repeat)
+    t_send = time.monotonic() - t_send
+    print(f"发射完成，耗时 {t_send * 1000:.0f}ms"
+          f"（波形理论时长 {original.duration_us / 1000 * args.repeat:.0f}ms）\n")
     t.join(timeout=5)
     captured = result.get("seq")
 

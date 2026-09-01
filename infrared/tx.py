@@ -59,6 +59,8 @@ class IRTransmitter:
                 f"无法连接 pigpiod({host})。请启动守护进程: "
                 "sudo systemctl start pigpiod"
             )
+        # 显式声明输出模式，确保 wave 播放时有正确的 GPIO 驱动
+        self.pi.set_mode(gpio_pin, pigpio.OUTPUT)
 
     def _build_wave(self, seq: PulseSequence) -> int:
         """根据时序构建 pigpio 波形，返回 wave_id。
@@ -108,15 +110,21 @@ class IRTransmitter:
             repeat:  重复发送次数（含首次）。
             gap_us:  每次重复之间的间隔。
         """
+        import time
+
         wave_id = self._build_wave(seq)
         try:
             for i in range(repeat):
-                self.pi.wave_send_once(wave_id)
+                ret = self.pi.wave_send_once(wave_id)
+                if ret < 0:
+                    raise RuntimeError(f"wave_send_once 失败: {ret}")
+                # 等待播放完成（带超时保护，防止死循环）
+                deadline = time.monotonic() + max(10.0, seq.duration_us / 1e6 * 2)
                 while self.pi.wave_tx_busy():
-                    pass
+                    if time.monotonic() > deadline:
+                        raise RuntimeError("wave 播放超时（DMA 可能异常）")
+                    time.sleep(0.001)
                 if i < repeat - 1:
-                    import time
-
                     time.sleep(gap_us / 1_000_000)
         finally:
             self.pi.wave_delete(wave_id)
