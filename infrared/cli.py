@@ -2,11 +2,13 @@
 """红外遥控空调命令行工具。
 
 用法示例：
-    python -m infrared.cli learn power            # 学习按键存为 power
-    python -m infrared.cli send power             # 发射 power
-    python -m infrared.cli send power --repeat 3  # 发射 3 次
-    python -m infrared.cli list                   # 列出码库
-    python -m infrared.cli test-tx                # 发射器硬件自检
+    python -m infrared learn power            # 学习按键存为 power
+    python -m infrared send power             # 发射 power
+    python -m infrared send power --repeat 3  # 发射 3 次
+    python -m infrared list                   # 列出码库
+    python -m infrared haier --on             # 海尔空调开机
+    python -m infrared haier --temp 26 --mode cool  # 26度制冷
+    python -m infrared test-tx                # 发射器硬件自检
 """
 
 from __future__ import annotations
@@ -18,6 +20,7 @@ import textwrap
 from .codes import CodeLibrary
 from .tx import IRTransmitter
 from .rx import IRReceiver
+from . import haier
 
 DEFAULT_CODES = "codes/ac.json"
 TX_PIN = 18
@@ -52,6 +55,28 @@ def build_parser() -> argparse.ArgumentParser:
     p_rx.add_argument("--rx-pin", type=int, default=RX_PIN, help="接收头 GPIO")
 
     p_info = sub.add_parser("info", help="显示码库元数据")
+
+    # 海尔空调专用命令
+    p_haier = sub.add_parser("haier", help="海尔空调控制")
+    p_haier.add_argument("--on", action="store_true", help="开机")
+    p_haier.add_argument("--off", action="store_true", help="关机")
+    p_haier.add_argument("--temp", type=int, help="设置温度 (16-30)")
+    p_haier.add_argument(
+        "--mode",
+        choices=["auto", "cool", "dry", "heat", "fan"],
+        help="设置模式",
+    )
+    p_haier.add_argument(
+        "--fan", choices=["auto", "high", "med", "low"], help="设置风速"
+    )
+    p_haier.add_argument(
+        "--protocol",
+        choices=["9B", "14B"],
+        default="9B",
+        help="协议类型（默认 9B）",
+    )
+    p_haier.add_argument("--repeat", type=int, default=1, help="重复发射次数")
+    p_haier.add_argument("--tx-pin", type=int, default=TX_PIN, help="发射 GPIO")
     return p
 
 
@@ -139,6 +164,62 @@ def cmd_info(args) -> int:
     return 0
 
 
+def cmd_haier(args) -> int:
+    """海尔空调控制命令。"""
+    protocol = args.protocol
+    seq = None
+
+    if args.on:
+        seq = haier.power_on(protocol)
+        print("海尔空调：开机")
+    elif args.off:
+        seq = haier.power_off(protocol)
+        print("海尔空调：关机")
+    else:
+        state = haier.HaierState(protocol=protocol)
+        parts = []
+
+        if args.mode:
+            mode_map = {
+                "auto": haier.MODE_AUTO,
+                "cool": haier.MODE_COOL,
+                "dry": haier.MODE_DRY,
+                "heat": haier.MODE_HEAT,
+                "fan": haier.MODE_FAN,
+            }
+            state.mode = mode_map[args.mode]
+            parts.append(f"模式={args.mode}")
+
+        if args.temp is not None:
+            state.temp = args.temp
+            parts.append(f"温度={args.temp}℃")
+
+        if args.fan:
+            fan_map = {
+                "auto": haier.FAN_AUTO,
+                "high": haier.FAN_HIGH,
+                "med": haier.FAN_MED,
+                "low": haier.FAN_LOW,
+            }
+            state.fan = fan_map[args.fan]
+            parts.append(f"风速={args.fan}")
+
+        if not parts:
+            print("请指定至少一个参数：--on/--off/--temp/--mode/--fan")
+            return 1
+
+        seq = haier.encode(state)
+        print(f"海尔空调：{', '.join(parts)}")
+
+    if seq is None:
+        return 1
+
+    with IRTransmitter(args.tx_pin) as tx:
+        tx.send(seq, repeat=args.repeat)
+    print(f"已发射（重复 {args.repeat} 次）")
+    return 0
+
+
 def main(argv=None) -> int:
     args = build_parser().parse_args(argv)
     handlers = {
@@ -148,6 +229,7 @@ def main(argv=None) -> int:
         "test-tx": cmd_test_tx,
         "test-rx": cmd_test_rx,
         "info": cmd_info,
+        "haier": cmd_haier,
     }
     try:
         return handlers[args.command](args)

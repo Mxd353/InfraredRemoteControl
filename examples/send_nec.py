@@ -14,7 +14,7 @@ def main() -> None:
     print(f"总时长: {seq.duration_us / 1000:.1f} ms")
     print("时序(us, 前 12 段):", seq.us[:12])
 
-    # 发送（需要树莓派 + pigpio + GPIO18）
+    # 发送（需要树莓派 + lgpio + GPIO18）
     try:
         from infrared.tx import IRTransmitter
 

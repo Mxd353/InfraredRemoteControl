@@ -1,90 +1,114 @@
-"""红外发送器：GPIO 输出 38kHz 载波调制。
+"""红外发送器：GPIO 输出 38kHz 载波调制（基于 lgpio）。
 
 无硬件调制的 IR LED 模块需要 GPIO 自行产生 38kHz 载波。
-通过 PWM 实现载波，在"标记(mark)"期间开 PWM、在"间隙(space)"
-期间关 PWM。
+本模块使用 lgpio 库的波形功能（tx_wave）发射：
+- mark 段：连续高低电平脉冲形成 38kHz 方波
+- space 段：GPIO 保持低电平
 
 注意：
-- 默认使用 pigpio 以得到稳定、精确至极微小秒级的时序。
-  pigpio 的 wave 可在内核层面精确发射，避免 Python 抖动。
-  安装: sudo apt install pigpio && sudo systemctl start pigpiod
-- 若无法使用 pigpio，可回退到 RPi.GPIO 的 Software PWM（精度较差）。
+- lgpio 由 pigpio 作者维护，直接操作 /dev/gpiochip*，无需守护进程。
+- 树莓派 5 的 GPIO 位于 /dev/gpiochip4（Pi 4 及更早为 gpiochip0），
+  本模块会自动探测 GPIO 所属的 gpiochip。
+- 本机无需运行，直接部署到树莓派即可。
 """
 
 from __future__ import annotations
 
-from typing import Optional, Sequence
+import glob
+import time
+from typing import List, Optional
 
 from .raw import PulseSequence
 
 CARRIER_HZ = 38_000  # 载波频率 38kHz
 
 try:
-    import pigpio  # type: ignore
+    import lgpio
 
-    _HAS_PIGPIO = True
+    _HAS_LGPIO = True
 except ImportError:  # pragma: no cover
-    _HAS_PIGPIO = False
+    _HAS_LGPIO = False
+
+
+def _find_gpiochip(gpio: int) -> int:
+    """在 /dev/gpiochip* 中查找 GPIO 所属的 gpiochip 编号。
+
+    树莓派 4B 及更早: GPIO 18 在 /dev/gpiochip0
+    树莓派 5:        GPIO 18 在 /dev/gpiochip4
+    """
+    devices = sorted(glob.glob("/dev/gpiochip*"))
+    if not devices:
+        raise RuntimeError(
+            "未找到 /dev/gpiochip* 设备。请确认运行在树莓派上且具备权限。"
+        )
+    for dev in devices:
+        try:
+            num = int(dev.rsplit("chip", 1)[1])
+        except ValueError:
+            continue
+        h = lgpio.gpiochip_open(num)
+        try:
+            try:
+                info = lgpio.gpio_get_line_info(h, gpio)
+                if info[0] >= 0:
+                    return num
+            except Exception:
+                pass
+        finally:
+            lgpio.gpiochip_close(h)
+    raise RuntimeError(f"GPIO{gpio} 未在任何 /dev/gpiochip* 中找到")
 
 
 class IRTransmitter:
-    """基于 pigpio wave 的红外发射器。
+    """基于 lgpio 波形功能的红外发射器。
 
     Args:
-        gpio_pin: 连接 IR LED 模块 SIG 的 GPIO（默认 18，BCM 编号）。
-        host:     pigpio 守护进程地址（默认本机）。
-        carrier_hz: 载波频率。
+        gpio_pin:   连接 IR LED 模块 SIG 的 GPIO（BCM 编号，默认 18）。
+        chip:       gpiochip 编号。None 时自动探测（推荐）。
+        carrier_hz: 载波频率（默认 38kHz）。
     """
 
     def __init__(
         self,
         gpio_pin: int = 18,
-        host: str = "127.0.0.1",
+        chip: Optional[int] = None,
         carrier_hz: int = CARRIER_HZ,
     ) -> None:
-        if not _HAS_PIGPIO:
+        if not _HAS_LGPIO:
             raise RuntimeError(
-                "未安装 pigpio。请先: sudo apt install pigpio && "
-                "sudo systemctl start pigpiod，然后 pip install pigpio"
+                "未安装 lgpio。请在树莓派上安装: "
+                "sudo apt install python3-lgpio  或  pip install lgpio"
             )
         self.gpio_pin = gpio_pin
         self.carrier_hz = carrier_hz
-        self.pi = pigpio.pi(host)
-        if not self.pi.connected:
-            raise RuntimeError(
-                f"无法连接 pigpiod({host})。请确认已启动服务: "
-                "sudo systemctl start pigpiod"
-            )
+        self.chip_num = chip if chip is not None else _find_gpiochip(gpio_pin)
 
-    def _build_wave(self, seq: PulseSequence) -> int:
-        """根据时序构建 pigpio 波形，返回 wave_id。"""
-        half_period = int(1_000_000 / (2 * self.carrier_hz))  # 半个载波周期 us
-        marks = []
-        pulses = []
+        self.h = lgpio.gpiochip_open(self.chip_num)
+        if self.h < 0:
+            raise RuntimeError(f"无法打开 /dev/gpiochip{self.chip_num}")
+        lgpio.gpio_claim_output(self.h, gpio_pin, 0)
+
+    def _build_pulses(self, seq: PulseSequence) -> List:
+        """将时序转换为 lgpio.pulse 列表（mark 段填充 38kHz 载波）。"""
+        half_period = max(1, round(1_000_000 / (2 * self.carrier_hz)))
+        mask = 1 << self.gpio_pin
+        pulses: List = []
         for i, us in enumerate(seq.us):
             if us <= 0:
                 continue
-            if i % 2 == 0:  # mark: 载波开启，即连续方波
-                pulses.extend(
-                    [
-                        pigpio.pulse(
-                            1 << self.gpio_pin,
-                            0,
-                            half_period,
-                        ),
-                        pigpio.pulse(
-                            0,
-                            1 << self.gpio_pin,
-                            half_period,
-                        ),
-                    ]
-                )
-                marks.append(us)
-            else:  # space: 载波关闭
-                pulses.append(pigpio.pulse(0, 1 << self.gpio_pin, us))
-
-        self.pi.wave_add_generic(pulses)
-        return self.pi.wave_create()
+            if i % 2 == 0:
+                # mark: 载波开启，发送连续方波
+                full_cycles = us // (2 * half_period)
+                for _ in range(full_cycles):
+                    pulses.append(lgpio.pulse(mask, mask, half_period))
+                    pulses.append(lgpio.pulse(0, mask, half_period))
+                rem = us - full_cycles * 2 * half_period
+                if rem > 0:
+                    pulses.append(lgpio.pulse(mask, mask, rem))
+            else:
+                # space: 载波关闭，保持低电平
+                pulses.append(lgpio.pulse(0, mask, us))
+        return pulses
 
     def send(self, seq: PulseSequence, repeat: int = 1, gap_us: int = 100_000) -> None:
         """发射脉冲序列。
@@ -92,34 +116,30 @@ class IRTransmitter:
         Args:
             seq:     要发送的时序。
             repeat:  重复发送次数（含首次）。
-            gap_us:  每次重复之间的间隔，需大于整帧时长，避免粘连。
+            gap_us:  每次重复之间的间隔。
         """
-        wave_id = self._build_wave(seq)
-        try:
-            for _ in range(repeat):
-                self.pi.wave_send_once(wave_id)
-                # 等待当前波形播放完毕
-                while self.pi.wave_tx_busy():
-                    pass
-                if repeat > 1:
-                    self._sleep_us(gap_us)
-        finally:
-            self.pi.wave_delete(wave_id)
-
-    @staticmethod
-    def _sleep_us(us: int) -> None:
-        # pigpio 的 wave_send_once 后需等待完整间隙
-        import time
-
-        time.sleep(us / 1_000_000)
+        pulses = self._build_pulses(seq)
+        for i in range(repeat):
+            lgpio.tx_wave(self.h, self.gpio_pin, pulses)
+            while lgpio.tx_busy(self.h, self.gpio_pin, lgpio.TX_WAVE) == 1:
+                pass
+            if i < repeat - 1:
+                time.sleep(gap_us / 1_000_000)
 
     def close(self) -> None:
-        """清理 GPIO 与 pigpio 连接。"""
-        if hasattr(self, "pi") and self.pi.connected:
-            self.pi.wave_clear()
-            self.pi.stop()
+        """释放 GPIO 并关闭 gpiochip。"""
+        if not hasattr(self, "h"):
+            return
+        try:
+            lgpio.gpio_free(self.h, self.gpio_pin)
+        except Exception:
+            pass
+        try:
+            lgpio.gpiochip_close(self.h)
+        except Exception:
+            pass
 
-    def __enter__(self):
+    def __enter__(self) -> "IRTransmitter":
         return self
 
     def __exit__(self, *exc) -> None:

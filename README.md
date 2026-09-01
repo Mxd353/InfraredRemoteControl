@@ -19,23 +19,37 @@ Pin 12 (GPIO18) ─────────── DAT
 ──────────────────────────────────
 Pin 4  (5V)     ─────────── VCC
 Pin 9  (GND)    ─────────── GND
-Pin 13 (GPIO27) ◄────────── OUT
+Pin 18 (GPIO24) ◄────────── OUT
 ```
 
-## 依赖安装
+## 树莓派部署
+
+### 方法一：一键部署脚本（推荐）
+
+在树莓派上克隆本项目后，在项目根目录执行：
 
 ```bash
-# pigpio（精确时序发射）
-sudo apt install pigpio python3-pigpio
-sudo systemctl enable pigpiod
-sudo systemctl start pigpiod
+sudo apt install -y git
+git clone https://github.com/Mxd353/InfraredRemoteControl.git
+cd InfraredRemoteControl
+./deploy.sh
+```
 
-# Python 依赖
-pip install pigpio RPi.GPIO
+`deploy.sh` 会自动完成：更新软件源、安装 `python3-lgpio`、安装 Python 依赖、验证导入。
 
-# 或一步完成
+### 方法二：手动安装
+
+```bash
+# lgpio（直接操作 /dev/gpiochip，无需守护进程）
+sudo apt install python3-lgpio
+
+# Python 依赖（树莓派上执行）
 pip install -r requirements.txt
 ```
+
+> 说明：本项目仅依赖 lgpio（RPi.GPIO 已废弃，不再使用）。
+> lgpio 由 pigpio 作者开发，直接操作 gpiochip 设备，无需守护进程。
+> 树莓派 5 的 GPIO 位于 /dev/gpiochip4，本项目会自动探测，无需手动指定。
 
 ## 项目结构
 
@@ -112,15 +126,39 @@ with IRTransmitter(gpio_pin=18) as tx:
     tx.send(seq, repeat=2)
 ```
 
+### 5. 海尔空调程序化控制（无需学习）
+
+支持按温度/模式/风速程序化生成红外信号，无需逐个录制遥控器按键。
+
+```bash
+# 开机 / 关机
+python -m infrared haier --on
+python -m infrared haier --off
+
+# 设置 26℃ 制冷、自动风
+python -m infrared haier --temp 26 --mode cool --fan auto
+
+# 设置 24℃ 制热
+python -m infrared haier --temp 24 --mode heat
+
+# 更换协议变体（14B = 新款 YR-W02 遥控器）
+python -m infrared haier --on --protocol 14B
+```
+
+> 如果你的空调对 **9B**（默认）无反应，尝试加 `--protocol 14B`。
+> 若两种协议均无效，说明该型号属于海尔自定义协议，需退回到 `learn` 模式录制原始信号。
+
 ## 支持的协议
 
-| 协议   | 常见品牌             | 状态              |
-| ------ | -------------------- | ----------------- |
-| NEC    | 通用（格力、美的等） | ✅                 |
-| 原始码 | 任何品牌             | ✅（通过接收学习） |
+| 协议      | 常见品牌                          | 状态              |
+| --------- | --------------------------------- | ----------------- |
+| NEC       | 通用（格力、美的等）              | ✅                 |
+| 海尔 9B   | 海尔（HSU07-HEA03 等老款）       | ✅（程序化编码）  |
+| 海尔 14B  | 海尔（YR-W02 等新款）            | ✅（程序化编码）  |
+| 原始码    | 任何品牌                          | ✅（通过接收学习） |
 
 ## 关键设计
 
-- **发射时序精度**：使用 pigpio 波形功能，在内核级生成脉冲，避免 Python 解释器的抖动干扰。
+- **发射时序精度**：使用 lgpio 波形功能在树莓派上精确生成脉冲时序（软件定时波形），无需守护进程。
 - **协议扩展**：在 `raw.py` 之上可实现任意脉冲协议（如 Sony、RC5、Samsung）。
 - **码库格式**：纯 JSON，方便手工编辑或与其他工具交换。
