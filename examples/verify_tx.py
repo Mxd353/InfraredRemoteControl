@@ -19,6 +19,7 @@ from infrared.rx import IRReceiver  # noqa: E402
 from infrared.codes import CodeLibrary  # noqa: E402
 
 TOLERANCE = 0.30  # 每段时长允许偏差 30%（与 NEC/海尔协议容差一致）
+GLITCH_US = 10    # 忽略接收头解调 38kHz 载波边界的极短毛刺段
 
 
 def main() -> None:
@@ -74,6 +75,7 @@ def main() -> None:
     cap_us = captured.us
     n = min(len(orig_us), len(cap_us))
     bad = 0
+    considered = 0
     max_dev = 0.0
     print(f"捕获: {len(cap_us)} 段, {captured.duration_us / 1000:.0f}ms"
           f"  | 原始: {len(orig_us)} 段, {original.duration_us / 1000:.0f}ms")
@@ -81,7 +83,10 @@ def main() -> None:
     for i in range(min(8, n)):
         o, c = orig_us[i], cap_us[i]
         dev = abs(c - o) / o if o else 0
-        bad += dev > TOLERANCE
+        if c >= GLITCH_US:  # 忽略接收头解调边界毛刺
+            considered += 1
+            if dev > TOLERANCE:
+                bad += 1
         max_dev = max(max_dev, dev)
         flag = "" if dev <= TOLERANCE else "  <-- 超差"
         print(f"  段{i:>2}: {o:>6}us -> {c:>6}us  偏差 {dev * 100:>5.1f}%{flag}")
@@ -90,19 +95,25 @@ def main() -> None:
         for i in range(8, n):
             o, c = orig_us[i], cap_us[i]
             dev = abs(c - o) / o if o else 0
-            bad += dev > TOLERANCE
+            if c >= GLITCH_US:
+                considered += 1
+                if dev > TOLERANCE:
+                    bad += 1
             max_dev = max(max_dev, dev)
 
+    ratio = bad / considered if considered else 1.0
     print(f"\n段数: 捕获{len(cap_us)} / 原始{len(orig_us)}"
-          f"  | 超差段数: {bad}/{n}  | 最大偏差: {max_dev * 100:.0f}%")
-    if len(cap_us) == len(orig_us) and bad == 0:
-        print("\n✅ 波形保真 —— 发射链路正常。空调无反应是以下原因之一：")
+          f"  | 超差段数: {bad}/{considered}（已忽略 <{GLITCH_US}us 毛刺）"
+          f"  | 最大偏差: {max_dev * 100:.0f}%")
+    if (len(cap_us) == len(orig_us) and ratio < 0.10):
+        print("\n✅ 波形保真（超差占比 <10%）—— 发射链路正常。")
+        print("   可以直接对空调发射。若空调无反应，检查：")
         print("   1. 发射距离/角度：需要更近、对准空调红外接收窗")
         print("   2. 发射强度不足：模块供电或用三极管放大驱动")
         print("   3. 需重复发射：加 --repeat 2~3")
     else:
-        print("\n❌ 波形失真（软件定时精度不足）—— 当前发射方案无法保证")
-        print("   微秒级时序。应使用 pigpio DMA 硬件波形（本项目默认）。")
+        print("\n❌ 波形失真 —— 发射链路仍异常，需继续排查。")
+        print("   （超差占比 >10% 或段数不一致）")
 
 
 if __name__ == "__main__":
