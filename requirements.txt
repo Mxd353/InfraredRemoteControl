@@ -1,0 +1,2 @@
+pigpio>=1.74
+RPi.GPIO>=0.7.1
